@@ -1,18 +1,19 @@
 package money;
 
+import java.io.Serializable;
 import java.util.Calendar;
 
-public class Spending implements MoneyFlow {
+public class Spending implements MoneyFlow, Serializable {
     private double amount;
     private Calendar date;
-    private String purposeOfSpending;
+    private String description;
 
     public Calendar getDate() {
         return date;
     }
 
-    public String getPurposeOfSpending() {
-        return purposeOfSpending;
+    public String getDescription() {
+        return description;
     }
 
     public double getAmount() {
@@ -20,12 +21,12 @@ public class Spending implements MoneyFlow {
 
     }
 
-    public void setAmount(double amount, String purposeOfSpending) {
+    public void setAmount(double amount, String description) {
         if (amount > 0) {
             throw new IllegalArgumentException("Spendings can not have positive amount!");
         }
         this.amount = amount;
-        this.purposeOfSpending = purposeOfSpending;
+        this.description = description;
         date = Calendar.getInstance();
     }
 }
