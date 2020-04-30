@@ -25,6 +25,13 @@ public class Main {
             deposit.addMoneyFlow(spending);
 
             System.out.println(deposit.getCurrentAmount());
+
+            //Restore to previous state
+            deposit.undoLastChange();
+            System.out.println(deposit.getCurrentAmount());
+
+            //before closing
+            deposit.serialSave();
         }
     }
 
