@@ -2,6 +2,7 @@ package money;
 
 import java.io.Serializable;
 import java.util.Calendar;
+import java.util.Objects;
 import java.util.UUID;
 
 public class Spending implements MoneyFlow, Serializable {
@@ -56,5 +57,18 @@ public class Spending implements MoneyFlow, Serializable {
 
     public String getType() {
         return type;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Spending spending = (Spending) o;
+        return uuid.equals(spending.uuid);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(uuid);
     }
 }

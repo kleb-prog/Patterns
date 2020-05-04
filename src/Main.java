@@ -27,6 +27,8 @@ public class Main {
             spending.setAmount(-6000, "Testing!!");
             deposit.update(spending);
 
+            MoneyFlow income2 = deposit.findByUUID(income.getUuid());
+            System.out.println(income.equals(income2));
             deposit.delete(income);
 
             System.out.println(deposit.getCurrentAmount());
