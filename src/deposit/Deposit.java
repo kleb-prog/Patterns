@@ -1,55 +1,37 @@
 package deposit;
 
+import DB.DBConnector;
+import DB.DBCreator;
 import money.MoneyFlow;
+import money.MoneyFlowFactory;
+import money.MoneyFlowType;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.rmi.AlreadyBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.*;
+import java.sql.Date;
+import java.util.*;
 
-public class Deposit implements RemoteDeposit, Serializable {
-    private static final long serialVersionUID = 1L;
-    private static final String FILE_NAME_TO_SAVE = "localSave.txt";
+public class Deposit implements RemoteDepositMapper {
 
     private static volatile Deposit instance;
-    private List<MoneyFlow> moneyFlowList;
+    private Connection connection;
 
-    private Memento memento;
+    private Map<String, MoneyFlow> moneyFlowIdentity;
 
     private Deposit() {
-        moneyFlowList = new ArrayList<>();
-        memento = new Memento();
-        deserialize();
+        moneyFlowIdentity = new HashMap<>();
+        connection = DBConnector.getConnection();
+        DBCreator.createTable(connection);
     }
 
     @Override
-    public boolean addMoneyFlow(MoneyFlow moneyFlow) {
-        System.out.println("MoneyFlow added: " + moneyFlow.getDescription());
-        memento.saveState();
-        return moneyFlowList.add(moneyFlow);
-    }
-
-    @Override
-    public double getCurrentAmount() {
+    public double getCurrentAmount() throws RemoteException{
         System.out.println("Returned current amount");
-        return moneyFlowList.stream().mapToDouble(MoneyFlow::getAmount).sum();
-    }
-
-    @Override
-    public void undoLastChange() {
-        memento.restore();
-    }
-
-    @Override
-    public void serialSave() {
-        serialize();
+        return findAll().stream().mapToDouble(MoneyFlow::getAmount).sum();
     }
 
     private static Deposit getInstance() {
@@ -69,7 +51,7 @@ public class Deposit implements RemoteDeposit, Serializable {
         Deposit deposit = getInstance();
 
         try {
-            RemoteDeposit stub = (RemoteDeposit) UnicastRemoteObject.exportObject(deposit, 0);
+            RemoteDepositMapper stub = (RemoteDepositMapper) UnicastRemoteObject.exportObject(deposit, 0);
 
             Registry registry = LocateRegistry.createRegistry(12345);
             registry.bind("depositRemote", stub);
@@ -78,61 +60,159 @@ public class Deposit implements RemoteDeposit, Serializable {
         }
     }
 
-    private class Memento implements Serializable {
-        private static final long serialVersionUID = 1L;
-
-        private List<MoneyFlow> historicalMoneyFlowList;
-
-        private Memento() {
-            saveState();
-        }
-
-        private void saveState() {
-            historicalMoneyFlowList = new ArrayList<>(moneyFlowList);
-        }
-
-        private void restore() {
-            List<MoneyFlow> temp = moneyFlowList;
-            moneyFlowList = historicalMoneyFlowList;
-            historicalMoneyFlowList = temp;
-            System.out.println("State restored to previous");
-        }
-    }
-
-    private void serialize() {
-        Path pathToFile = Paths.get(FILE_NAME_TO_SAVE);
+    @Override
+    public void insert(MoneyFlow moneyFlow) {
+        String sql = "INSERT into money_flow values(?, ?, ?, ?, ?);";
+        PreparedStatement statement = null;
         try {
-            if (Files.exists(pathToFile)) {
-                Files.delete(pathToFile);
+            statement = connection.prepareStatement(sql);
+            statement.setObject(1, moneyFlow.getUuid());
+            statement.setDouble(2, moneyFlow.getAmount());
+            statement.setString(3, moneyFlow.getDescription());
+            statement.setDate(4, new Date(moneyFlow.getDate().getTime().getTime()));
+            statement.setString(5, moneyFlow.getType());
+            statement.executeUpdate();
+
+            moneyFlowIdentity.put(moneyFlow.getUuid().toString(), moneyFlow);
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (statement != null)
+                    statement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
-            Files.createFile(pathToFile);
-        } catch (IOException e) {
+        }
+    }
+
+    @Override
+    public void update(MoneyFlow moneyFlow) {
+        String sql = "UPDATE money_flow SET amount = ?, description = ?, date = ? where uuid = ?;";
+        PreparedStatement statement = null;
+        try {
+            statement = connection.prepareStatement(sql);
+            statement.setDouble(1, moneyFlow.getAmount());
+            statement.setString(2, moneyFlow.getDescription());
+            statement.setDate(3, new Date(moneyFlow.getDate().getTime().getTime()));
+            statement.setObject(4, moneyFlow.getUuid());
+            statement.executeUpdate();
+
+            moneyFlowIdentity.put(moneyFlow.getUuid().toString(), moneyFlow);
+        } catch (SQLException e) {
             e.printStackTrace();
+        } finally {
+            try {
+                if (statement != null)
+                    statement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public void delete(MoneyFlow moneyFlow) {
+        String sql = "DELETE from money_flow where uuid = ?;";
+        PreparedStatement statement = null;
+        try {
+            statement = connection.prepareStatement(sql);
+            statement.setObject(1, moneyFlow.getUuid());
+            statement.executeUpdate();
+
+            moneyFlowIdentity.remove(moneyFlow.getUuid().toString());
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (statement != null)
+                    statement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public MoneyFlow findByUUID(UUID uuid) throws RemoteException {
+        MoneyFlow cached = moneyFlowIdentity.get(uuid.toString());
+        if (cached != null) {
+            return cached;
         }
 
+        String sql = "select * from money_flow where uuid = ?;";
+        PreparedStatement statement = null;
+        MoneyFlow moneyFlow = null;
+        try {
+            statement = connection.prepareStatement(sql);
+            statement.setObject(1, uuid);
+            ResultSet rs = statement.executeQuery();
 
-        try (FileOutputStream fileOutputStream = new FileOutputStream(pathToFile.toString());
-             ObjectOutputStream oos = new ObjectOutputStream(fileOutputStream)) {
-            oos.writeObject(getInstance());
-            oos.flush();
-        } catch (IOException e) {
+            if (rs != null) {
+                String type = rs.getString("type");
+                moneyFlow = MoneyFlowFactory.getInstance().create(MoneyFlowType.valueOf(type));
+                if (moneyFlow != null) {
+                    Calendar date = Calendar.getInstance();
+                    date.setTime(rs.getDate(4));
+                    moneyFlow.setAmount(uuid, rs.getDouble(2), rs.getString(3), date);
+                }
+            }
+            return moneyFlow;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            try {
+                if (statement != null)
+                    statement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public List<MoneyFlow> findAll() throws RemoteException {
+        String sql = "select * from money_flow;";
+        PreparedStatement statement = null;
+        List<MoneyFlow> moneyFlowList = new ArrayList<>();
+        try {
+            statement = connection.prepareStatement(sql);
+            ResultSet rs = statement.executeQuery();
+
+            while (rs.next()) {
+                String type = rs.getString("type");
+                MoneyFlow moneyFlow = MoneyFlowFactory.getInstance().create(MoneyFlowType.valueOf(type));
+                if (moneyFlow != null) {
+                    UUID uuid = (UUID) rs.getObject(1);
+                    Calendar date = Calendar.getInstance();
+                    date.setTime(rs.getDate(4));
+                    moneyFlow.setAmount(uuid, rs.getDouble(2), rs.getString(3), date);
+                    moneyFlowList.add(moneyFlow);
+                    moneyFlowIdentity.put(uuid.toString(), moneyFlow);
+                }
+            }
+            return moneyFlowList;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            try {
+                if (statement != null)
+                    statement.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public void closeConnection() throws RemoteException {
+        try {
+            connection.close();
+        } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    private void deserialize() {
-        Path pathToFile = Paths.get(FILE_NAME_TO_SAVE);
-        if (!Files.exists(pathToFile)) {
-            return;
-        }
-
-        try (FileInputStream fileInputStream = new FileInputStream(pathToFile.toString());
-             ObjectInputStream ois = new ObjectInputStream(fileInputStream)) {
-            Deposit des = (Deposit) ois.readObject();
-            this.moneyFlowList = des.moneyFlowList;
-            memento.saveState();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-    }
 }

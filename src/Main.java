@@ -1,5 +1,5 @@
 
-import deposit.RemoteDeposit;
+import deposit.RemoteDepositMapper;
 import money.MoneyFlow;
 import money.MoneyFlowFactory;
 import money.MoneyFlowType;
@@ -19,27 +19,27 @@ public class Main {
         MoneyFlow spending = factory.create(MoneyFlowType.SpendingType);
         spending.setAmount(-3000, "Tools");
 
-        RemoteDeposit deposit = getRemoteDeposit();
+        RemoteDepositMapper deposit = getRemoteDeposit();
         if (deposit != null) {
-            deposit.addMoneyFlow(income);
-            deposit.addMoneyFlow(spending);
+            deposit.insert(income);
+            deposit.insert(spending);
+
+            spending.setAmount(-6000, "Testing!!");
+            deposit.update(spending);
+
+            MoneyFlow income2 = deposit.findByUUID(income.getUuid());
+            System.out.println(income.equals(income2));
+            deposit.delete(income);
 
             System.out.println(deposit.getCurrentAmount());
-
-            //Restore to previous state
-            deposit.undoLastChange();
-            System.out.println(deposit.getCurrentAmount());
-
-            //before closing
-            deposit.serialSave();
         }
     }
 
-    private static RemoteDeposit getRemoteDeposit() {
-        RemoteDeposit deposit = null;
+    private static RemoteDepositMapper getRemoteDeposit() {
+        RemoteDepositMapper deposit = null;
         try {
             Registry registry = LocateRegistry.getRegistry(null, 12345);
-            deposit = (RemoteDeposit) registry.lookup("depositRemote");
+            deposit = (RemoteDepositMapper) registry.lookup("depositRemote");
         } catch (RemoteException | NotBoundException e) {
             System.out.println("Error while getting \"depositRemote\"");
         }
